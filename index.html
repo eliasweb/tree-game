@@ -23,6 +23,88 @@ var ctx=canvas.getContext('2d');
 var W=0,H=0;
 var dpr=window.devicePixelRatio||1;
 
+// --- AUDIO ENGINE ---
+var ac=null;
+var muted=false;
+var musicGain=null;
+var musicStarted=false;
+var prevStage=-1;
+var prevSeason=-1;
+
+function initAudio(){
+  if(ac)return;
+  try{ac=new(window.AudioContext||window.webkitAudioContext)();if(ac.state==='suspended')ac.resume()}catch(e){ac=null}
+}
+
+function playTone(freq,dur,vol,type,delay){
+  if(!ac||muted)return;
+  var t=ac.currentTime+(delay||0);
+  var o=ac.createOscillator();
+  var gn=ac.createGain();
+  o.type=type||'sine';
+  o.frequency.setValueAtTime(freq,t);
+  gn.gain.setValueAtTime(vol||0.15,t);
+  gn.gain.exponentialRampToValueAtTime(0.001,t+(dur||0.15));
+  o.connect(gn);gn.connect(ac.destination);
+  o.start(t);o.stop(t+(dur||0.15)+0.01);
+}
+
+function playTap(){
+  if(!ac||muted)return;
+  var base=500+Math.random()*200;
+  playTone(base,0.08,0.12,'sine');
+  playTone(base*1.5,0.06,0.06,'sine',0.02);
+}
+
+function playStageUp(){
+  if(!ac||muted)return;
+  var notes=[523.25,659.25,783.99,1046.5];
+  for(var i=0;i<notes.length;i++){
+    playTone(notes[i],0.25,0.12,'triangle',i*0.1);
+  }
+  playTone(1046.5,0.5,0.08,'sine',0.4);
+}
+
+function playSeasonChange(){
+  if(!ac||muted)return;
+  playTone(392,0.4,0.06,'sine');
+  playTone(523.25,0.4,0.06,'sine',0.15);
+  playTone(659.25,0.5,0.05,'triangle',0.3);
+}
+
+var PENTA=[261.63,293.66,329.63,392.00,440.00,523.25,587.33,659.25,783.99,880.00];
+var musicTimer=0;
+var musicNote=0;
+
+function musicTick(){
+  if(!ac||muted||!musicStarted)return;
+  var t=ac.currentTime;
+  var note=PENTA[musicNote%PENTA.length];
+  var o=ac.createOscillator();
+  var gn=ac.createGain();
+  o.type='sine';
+  o.frequency.setValueAtTime(note,t);
+  gn.gain.setValueAtTime(0.03,t);
+  gn.gain.exponentialRampToValueAtTime(0.001,t+1.8);
+  o.connect(gn);gn.connect(ac.destination);
+  o.start(t);o.stop(t+2);
+
+  if(musicNote%3===0){
+    var o2=ac.createOscillator();
+    var gn2=ac.createGain();
+    o2.type='triangle';
+    o2.frequency.setValueAtTime(note/2,t);
+    gn2.gain.setValueAtTime(0.02,t);
+    gn2.gain.exponentialRampToValueAtTime(0.001,t+2.5);
+    o2.connect(gn2);gn2.connect(ac.destination);
+    o2.start(t);o2.stop(t+2.6);
+  }
+
+  musicNote++;
+  if(musicNote>=100)musicNote=0;
+}
+
+// --- GAME STATE ---
 var STAGES=['Acorn','Sprout','Sapling','Young Tree','Mature Oak','Ancient Oak'];
 var THRESHOLDS=[0,10,30,60,100,150];
 var SEASONS=['Spring','Summer','Autumn','Winter'];
@@ -42,6 +124,9 @@ g.season=0;g.sTimer=0;g.sway=0;
 g.leaves=[];g.clouds=[];g.snow=[];g.fx=[];
 g.lastT=0;
 
+prevStage=getStage(g.energy);
+prevSeason=g.season;
+
 function getStage(e){for(var i=THRESHOLDS.length-1;i>=0;i--)if(e>=THRESHOLDS[i])return i;return 0}
 
 function resize(){
@@ -57,15 +142,27 @@ function initClouds(){
   for(var i=0;i<3;i++)g.clouds.push({x:Math.random()*W,y:30+Math.random()*H*0.2,w:60+Math.random()*80,s:0.2+Math.random()*0.3,o:0.5+Math.random()*0.3});
 }
 
+var muteBtn={x:0,y:0,sz:20};
+
+function isMuteHit(px,py){
+  return px>=muteBtn.x-muteBtn.sz&&px<=muteBtn.x+muteBtn.sz&&py>=muteBtn.y-muteBtn.sz&&py<=muteBtn.y+muteBtn.sz;
+}
+
 function tap(e){
   e.preventDefault();
+  initAudio();
+  if(!musicStarted){musicStarted=true}
   var r=canvas.getBoundingClientRect();
   var cx,cy;
   if(e.touches){cx=e.touches[0].clientX;cy=e.touches[0].clientY}
   else{cx=e.clientX;cy=e.clientY}
   var x=(cx-r.left)*(canvas.width/r.width)/dpr;
   var y=(cy-r.top)*(canvas.height/r.height)/dpr;
+
+  if(isMuteHit(x,y)){muted=!muted;return}
+
   g.energy+=1;g.taps+=1;save();
+  playTap();
   var ps=[];
   for(var i=0;i<8;i++){var a=Math.PI*2*i/8;ps.push({x:x,y:y,vx:Math.cos(a)*(2+Math.random()*2),vy:Math.sin(a)*(2+Math.random()*2),life:1,sz:3+Math.random()*3})}
   g.fx.push({x:x,y:y,r:0,mr:40,o:1,ps:ps});
@@ -135,15 +232,46 @@ function drawTree(stage,cx,gy,sw,sn){
   ctx.restore();
 }
 
+function drawMuteBtn(){
+  var bx=W-36,by=H-36,sz=14;
+  muteBtn.x=bx;muteBtn.y=by;muteBtn.sz=sz+6;
+
+  ctx.fillStyle='rgba(0,0,0,0.4)';
+  ctx.beginPath();ctx.arc(bx,by,sz+6,0,Math.PI*2);ctx.fill();
+
+  ctx.strokeStyle='#FFF';ctx.lineWidth=2;
+  if(muted){
+    ctx.beginPath();ctx.moveTo(bx-6,by-4);ctx.lineTo(bx-2,by-4);ctx.lineTo(bx+3,by-8);ctx.lineTo(bx+3,by+8);ctx.lineTo(bx-2,by+4);ctx.lineTo(bx-6,by+4);ctx.closePath();ctx.stroke();
+    ctx.strokeStyle='#F44336';ctx.lineWidth=2.5;
+    ctx.beginPath();ctx.moveTo(bx+6,by-4);ctx.lineTo(bx+12,by+4);ctx.stroke();
+    ctx.beginPath();ctx.moveTo(bx+12,by-4);ctx.lineTo(bx+6,by+4);ctx.stroke();
+  }else{
+    ctx.beginPath();ctx.moveTo(bx-6,by-4);ctx.lineTo(bx-2,by-4);ctx.lineTo(bx+3,by-8);ctx.lineTo(bx+3,by+8);ctx.lineTo(bx-2,by+4);ctx.lineTo(bx-6,by+4);ctx.closePath();ctx.stroke();
+    ctx.lineWidth=1.5;
+    ctx.beginPath();ctx.arc(bx+4,by,5,-(Math.PI/3),Math.PI/3);ctx.stroke();
+    ctx.beginPath();ctx.arc(bx+4,by,9,-(Math.PI/3),Math.PI/3);ctx.stroke();
+  }
+}
+
 function frame(t){
   var dt=Math.min(t-g.lastT,50);g.lastT=t;
   if(W===0){requestAnimationFrame(frame);return}
   var gy=H*0.72;
 
   g.energy+=0.1*(dt/1000);
-  g.sTimer+=dt;if(g.sTimer>=SEASON_MS){g.sTimer=0;g.season=(g.season+1)%4}
+  g.sTimer+=dt;
+  if(g.sTimer>=SEASON_MS){
+    g.sTimer=0;g.season=(g.season+1)%4;
+    if(g.season!==prevSeason){playSeasonChange();prevSeason=g.season}
+  }
   g.sway=t*0.001;
   var stage=getStage(g.energy);
+
+  if(stage!==prevStage&&stage>prevStage){playStageUp();prevStage=stage}
+  else if(stage!==prevStage){prevStage=stage}
+
+  musicTimer+=dt;
+  if(musicTimer>=2000){musicTimer=0;musicTick()}
 
   var lr=g.season===2?0.08:g.season===3?0.01:0.03;
   if(stage>=2&&Math.random()<lr){var lcs=LEAF_C[g.season];g.leaves.push({x:Math.random()*W,y:-10,vy:0.5+Math.random(),vx:0,sz:3+Math.random()*5,rot:Math.random()*Math.PI*2,rs:(Math.random()-0.5)*0.05,c:lcs[Math.floor(Math.random()*lcs.length)],wo:Math.random()*Math.PI*2})}
@@ -160,7 +288,6 @@ function frame(t){
 
   if(Math.random()<0.03)save();
 
-  // RENDER
   ctx.save();ctx.setTransform(dpr,0,0,dpr,0,0);
 
   drawSky(g.season);drawSun(g.season,t);
@@ -176,7 +303,6 @@ function frame(t){
 
   g.fx.forEach(function(f){ctx.strokeStyle='rgba(255,215,0,'+f.o+')';ctx.lineWidth=2;ctx.beginPath();ctx.arc(f.x,f.y,f.r,0,Math.PI*2);ctx.stroke();ctx.fillStyle='rgba(255,215,0,'+f.o+')';ctx.font='bold 16px sans-serif';ctx.fillText('+1',f.x+10,f.y-f.r);f.ps.forEach(function(p){ctx.fillStyle='rgba(255,215,0,'+p.life+')';ctx.beginPath();ctx.arc(p.x,p.y,p.sz*p.life,0,Math.PI*2);ctx.fill()})});
 
-  // HUD
   ctx.fillStyle='rgba(0,0,0,0.4)';ctx.beginPath();rr(12,10,140,60,10);ctx.fill();
   ctx.fillStyle='#FFF';ctx.font='bold 16px sans-serif';ctx.fillText('Energy: '+Math.floor(g.energy),24,32);
   ctx.fillStyle='#FFD700';ctx.font='13px sans-serif';ctx.fillText(STAGES[stage],24,50);
@@ -189,6 +315,8 @@ function frame(t){
   }
 
   if(g.energy<3){var pu=Math.sin(t*0.005)*0.3+0.7;ctx.fillStyle='rgba(255,255,255,'+pu+')';ctx.font='18px sans-serif';ctx.textAlign='center';ctx.fillText('Tap to grow your oak!',W/2,H*0.55);ctx.textAlign='start'}
+
+  drawMuteBtn();
 
   ctx.restore();
   requestAnimationFrame(frame);
