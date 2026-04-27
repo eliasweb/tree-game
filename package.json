@@ -1,6 +1,7 @@
 {
   "name": "arborist-usa-2",
   "version": "0.0.1",
+  "homepage": "https://eliasweb.github.io/tree-game",
   "private": true,
   "dependencies": {
     "@capacitor/core": "2.4.6",

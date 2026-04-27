@@ -1,0 +1,45 @@
+.about-content {
+  --background: #f0f4e8;
+}
+
+.about-card {
+  margin: 12px;
+  border-radius: 12px;
+}
+
+.about-text {
+  font-size: 1rem;
+  line-height: 1.6;
+  color: #444;
+}
+
+.how-to-list {
+  padding-left: 18px;
+  margin: 0;
+}
+
+.how-to-list li {
+  font-size: 0.95rem;
+  line-height: 1.8;
+  color: #444;
+}
+
+.stages-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.stage-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.95rem;
+  color: #444;
+}
+
+.stage-emoji {
+  font-size: 1.4rem;
+  width: 28px;
+  text-align: center;
+}
