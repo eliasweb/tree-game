@@ -197,19 +197,22 @@ const OakTreeGame: React.FC = () => {
 
     const resize = () => {
       const dpr = window.devicePixelRatio || 1;
-      const w = container.clientWidth;
-      const h = container.clientHeight;
+      const rect = container.getBoundingClientRect();
+      const w = rect.width || window.innerWidth;
+      const h = rect.height || window.innerHeight;
+      if (w === 0 || h === 0) return;
       canvas.width = w * dpr;
       canvas.height = h * dpr;
       canvas.style.width = w + 'px';
       canvas.style.height = h + 'px';
-      ctx.scale(dpr, dpr);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       gameRef.current.width = w;
       gameRef.current.height = h;
       if (gameRef.current.clouds.length === 0) initClouds(w, h);
     };
 
     resize();
+    const retryResize = setTimeout(resize, 200);
     window.addEventListener('resize', resize);
 
     const g = gameRef.current;
@@ -735,6 +738,7 @@ const OakTreeGame: React.FC = () => {
     g.animId = requestAnimationFrame(update);
 
     return () => {
+      clearTimeout(retryResize);
       window.removeEventListener('resize', resize);
       cancelAnimationFrame(g.animId);
       saveGameState({ energy: g.energy, totalTaps: g.totalTaps, startTime: g.startTime });
